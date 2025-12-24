@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Button, Card, App, Row, Col, Tooltip, Typography, Input, Segmented, DatePicker } from 'antd';
+import { Button, Card, App, Row, Col, Tooltip, Typography, Input, Segmented, DatePicker, Modal, Select } from 'antd';
 import { invoke } from '@tauri-apps/api/core'
 import { ReloadOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/icons';
 import SearchTable from './SearchTable'
@@ -31,6 +31,11 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
   const [dayRange, setDayRange] = useState([dayjs(), dayjs()])
   const [weekValue, setWeekValue] = useState(dayjs())
   const [monthValue, setMonthValue] = useState(dayjs())
+
+  // 字幕下载相关状态
+  const [subtitleModalVisible, setSubtitleModalVisible] = useState(false)
+  const [subtitleFormat, setSubtitleFormat] = useState('srt')
+  const [downloadingSubtitles, setDownloadingSubtitles] = useState(false)
 
   const selectDateMethodOptions = [
     {
@@ -207,6 +212,45 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
     setSelectedRightKeys([])
   }
 
+  // 下载字幕处理函数
+  const handleDownloadSubtitles = async () => {
+    const subs = rightSubList.filter((item) => selectedRightKeys.includes(item.sub_id))
+    if (subs.length === 0) {
+      notification.error({ message: '请选择课程' })
+      return
+    }
+
+    setDownloadingSubtitles(true)
+    try {
+      const results = await invoke('download_subtitles', {
+        subs: subs.map(sub => ({
+          sub_id: sub.sub_id,
+          course_name: sub.course_name,
+          sub_name: sub.sub_name,
+          path: sub.path,
+        })),
+        format: subtitleFormat,
+      })
+
+      if (results.failed === 0) {
+        notification.success({
+          message: '字幕下载完成',
+          description: `成功下载 ${results.success} 个字幕`,
+        })
+      } else {
+        notification.warning({
+          message: '字幕下载完成',
+          description: `成功 ${results.success} 个，失败 ${results.failed} 个`,
+        })
+      }
+    } catch (err) {
+      notification.error({ message: '下载失败', description: String(err) })
+    } finally {
+      setDownloadingSubtitles(false)
+      setSubtitleModalVisible(false)
+    }
+  }
+
   const searchCourse = () => {
     if (searchCourseName === '' && searchTeacherName === '') {
       notification.error({
@@ -306,6 +350,13 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
               onClick={downloadSubsPPT}
               disabled={loadingRightSubList}
             >{'下载课件'}</Button>
+            <Button
+              type='primary'
+              icon={<DownloadOutlined />}
+              onClick={() => setSubtitleModalVisible(true)}
+              disabled={loadingRightSubList || selectedRightKeys.length === 0}
+              style={{ marginLeft: 10 }}
+            >{'下载字幕'}</Button>
           </div>
         </div>
       </Card>
@@ -368,6 +419,36 @@ export default function Classroom({ addDownloadTasks, toPdf }) {
           />
         </Col>
       </Row>
+
+      {/* 字幕下载 Modal */}
+      <Modal
+        title="下载字幕"
+        open={subtitleModalVisible}
+        onCancel={() => setSubtitleModalVisible(false)}
+        onOk={handleDownloadSubtitles}
+        confirmLoading={downloadingSubtitles}
+        okText="下载"
+        cancelText="取消"
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Text>已选择 {selectedRightKeys.length} 个课程</Text>
+        </div>
+        <div>
+          <Text>格式：</Text>
+          <Select
+            value={subtitleFormat}
+            onChange={setSubtitleFormat}
+            style={{ width: 200 }}
+            options={[
+              { value: 'txt', label: '纯文本 (.txt)' },
+              { value: 'txt_timestamp', label: '时间戳文本 (.txt)' },
+              { value: 'srt', label: 'SRT 字幕 (.srt)' },
+              { value: 'srt_bilingual', label: '双语 SRT (.srt)' },
+              { value: 'vtt', label: 'WebVTT (.vtt)' },
+            ]}
+          />
+        </div>
+      </Modal>
     </div>
   )
 }

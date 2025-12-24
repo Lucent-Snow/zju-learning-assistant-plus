@@ -756,6 +756,36 @@ impl ZjuAssist {
         Ok(subs)
     }
 
+    /// 获取课程字幕
+    pub async fn get_subtitle(&self, sub_id: i64) -> Result<Value> {
+        if !self.have_login {
+            return Err(anyhow!("Not login"));
+        }
+        let token = self.get_token()?;
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            USER_AGENT,
+            "Mozilla/5.0 (X11; Linux x86_64; rv:88.0) Gecko/20100101 Firefox/88.0"
+                .parse()
+                .unwrap(),
+        );
+        headers.insert(AUTHORIZATION, format!("Bearer {}", token).parse().unwrap());
+
+        let url = format!(
+            "https://yjapi.cmc.zju.edu.cn/courseapi/v3/web-socket/search-trans-result?sub_id={}&format=json",
+            sub_id
+        );
+
+        let res = self
+            .get(&url)
+            .headers(headers)
+            .send()
+            .await?;
+
+        let json: Value = res.json().await?;
+        Ok(json)
+    }
+
     fn get_auth_play_url(url: &str, id: &str, tenant_id: &str, phone: &str) -> String {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)

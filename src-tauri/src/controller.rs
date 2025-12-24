@@ -1,5 +1,5 @@
-use crate::model::{Config, Progress, Subject, Upload};
-use crate::utils::{export_todo_ics, images_to_pdf};
+use crate::model::{Config, Progress, Subject, SubtitleDownloadResult, SubtitleRequest, Upload};
+use crate::utils::{export_todo_ics, images_to_pdf, Subtitle};
 use crate::zju_assist::ZjuAssist;
 
 use chrono::{DateTime, Local, NaiveDate, Utc};
@@ -1093,6 +1093,7 @@ pub async fn get_latest_version_info() -> Result<Value, String> {
 #[tauri::command]
 pub async fn start_download_ppts(
     zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
+    config: State<'_, Arc<Mutex<Config>>>,  // 添加config参数
     state: State<'_, DashMap<String, Arc<AtomicBool>>>,
     window: Window,
     id: String,
@@ -1115,6 +1116,12 @@ pub async fn start_download_ppts(
     let download_state = Arc::new(AtomicBool::new(true));
     let zju_assist = zju_assist.lock().await.clone();
     state.insert(id.clone(), download_state.clone());
+
+    // 读取配置并克隆值（在spawn之前）
+    let config_lock = config.lock().await;
+    let enable_dedup = config_lock.enable_image_dedup;
+    let dedup_threshold = config_lock.dedup_threshold;
+    drop(config_lock);
 
     tokio::task::spawn(async move {
         let mut count = 0;
@@ -1292,7 +1299,14 @@ pub async fn start_download_ppts(
                     },
                 )
                 .unwrap();
-            let res = images_to_pdf(image_paths, &pdf_path).map_err(|err| err.to_string());
+
+            // 调用images_to_pdf生成PDF
+            let res = images_to_pdf(
+                image_paths,
+                &pdf_path,
+                enable_dedup,
+                dedup_threshold,
+            ).map_err(|err| err.to_string());
             if let Err(err) = res {
                 window
                     .emit(
@@ -1927,5 +1941,90 @@ pub async fn set_config(
             .map_err(|err| err.to_string())?;
     }
 
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn download_subtitles(
+    zju_assist: State<'_, Arc<Mutex<ZjuAssist>>>,
+    subs: Vec<SubtitleRequest>,
+    format: String,
+) -> Result<SubtitleDownloadResult, String> {
+    info!("download_subtitles: {} subs, format: {}", subs.len(), format);
+
+    // Keep classroom session alive
+    let mut zju_assist_mut = zju_assist.lock().await;
+    zju_assist_mut
+        .keep_classroom_alive()
+        .await
+        .map_err(|err| err.to_string())?;
+    drop(zju_assist_mut);
+
+    let mut success = 0u32;
+    let mut failed = 0u32;
+    let mut errors = Vec::new();
+
+    for sub in subs {
+        match download_single_subtitle(&zju_assist, &sub, &format).await {
+            Ok(_) => success += 1,
+            Err(e) => {
+                failed += 1;
+                errors.push(format!("{}-{}: {}", sub.course_name, sub.sub_name, e));
+            }
+        }
+    }
+
+    Ok(SubtitleDownloadResult {
+        success,
+        failed,
+        errors,
+    })
+}
+
+async fn download_single_subtitle(
+    zju_assist: &State<'_, Arc<Mutex<ZjuAssist>>>,
+    sub: &SubtitleRequest,
+    format: &str,
+) -> Result<(), String> {
+    // Fetch subtitle JSON from API
+    let zju_assist = zju_assist.lock().await;
+    let json = zju_assist
+        .get_subtitle(sub.sub_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    drop(zju_assist);
+
+    // Parse into Subtitle struct
+    let subtitle = Subtitle::from_json(&json).map_err(|e| e.to_string())?;
+
+    if subtitle.entries.is_empty() {
+        return Err("该课程没有字幕内容".to_string());
+    }
+
+    // Convert to selected format
+    let (content, extension) = match format {
+        "txt" => (subtitle.to_plain_text(), "txt"),
+        "txt_timestamp" => (subtitle.to_timestamped_text(), "txt"),
+        "srt" => (subtitle.to_srt(), "srt"),
+        "srt_bilingual" => (subtitle.to_srt_bilingual(), "srt"),
+        "vtt" => (subtitle.to_vtt(), "vtt"),
+        _ => return Err(format!("未知格式: {}", format)),
+    };
+
+    // Sanitize names for file path
+    let course_name = sub.course_name.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+    let sub_name = sub.sub_name.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+
+    // Construct save path - same structure as PPT: {path}/{sub_name}/{course_name}-{sub_name}.{ext}
+    let dir_path = Path::new(&sub.path).join(&sub_name);
+    std::fs::create_dir_all(&dir_path).map_err(|e| e.to_string())?;
+
+    let file_name = format!("{}-{}.{}", course_name, sub_name, extension);
+    let file_path = dir_path.join(&file_name);
+
+    // Write file
+    std::fs::write(&file_path, content).map_err(|e| e.to_string())?;
+
+    info!("Saved subtitle: {:?}", file_path);
     Ok(())
 }

@@ -1,5 +1,5 @@
 use image::{ColorType, GenericImageView, ImageFormat};
-use log::info;
+use log::{info, warn};
 use miniz_oxide::deflate::{compress_to_vec_zlib, CompressionLevel};
 use num::BigUint;
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref};
@@ -7,12 +7,31 @@ use reqwest::Client;
 use serde_json::Value;
 use std::{io::Write, path::Path, time::Instant};
 
+use crate::utils::image_dedup::deduplicate_images;
+
 // reference:
 // https://github.com/typst/pdf-writer/blob/main/examples/image.rs
 pub fn images_to_pdf(
     image_paths: Vec<String>,
     pdf_path: &str,
+    enable_dedup: bool,
+    dedup_threshold: u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // 如果启用去重，先过滤重复图片
+    let (filtered_paths, _skipped_paths) = if enable_dedup && !image_paths.is_empty() {
+        let (kept, skipped) = deduplicate_images(image_paths, dedup_threshold)?;
+        info!("图片去重：原始 {} 张，保留 {} 张，跳过 {} 张",
+              kept.len() + skipped.len(), kept.len(), skipped.len());
+        (kept, skipped)
+    } else {
+        (image_paths, Vec::new())
+    };
+
+    // 处理空列表情况
+    if filtered_paths.is_empty() {
+        warn!("没有图片可以生成PDF");
+        return Err("No images to generate PDF".into());
+    }
     let mut pdf = Pdf::new();
 
     let mut page_ids = Vec::new();
@@ -23,7 +42,7 @@ pub fn images_to_pdf(
     let catalog_id = Ref::new(1);
     let page_tree_id = Ref::new(2);
 
-    for (index, path) in image_paths.iter().enumerate() {
+    for (index, path) in filtered_paths.iter().enumerate() {
         page_ids.push(Ref::new((index + 1) as i32 * 4 + 1));
         image_ids.push(Ref::new((index + 1) as i32 * 4 + 2));
         s_mask_ids.push(Ref::new((index + 1) as i32 * 4 + 3));

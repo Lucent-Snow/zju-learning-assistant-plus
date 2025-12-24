@@ -34,6 +34,8 @@ export class Config {
     tray: boolean
     max_concurrent_tasks: number
     auto_start: boolean
+    enable_image_dedup: boolean
+    dedup_threshold: number
 
     constructor(config?: Partial<Config>) {
         Object.assign(this, config);

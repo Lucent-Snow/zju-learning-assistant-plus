@@ -739,6 +739,46 @@ export default function Home({ setIsLogin, setAutoLoginUsername, setAutoLoginPas
               title={<Text
                 style={{
                   fontWeight: 'normal',
+                }}>PPT 图片去重</Text>}
+              description={<div>
+                <Text type="secondary" style={{
+                  fontWeight: 'normal',
+                  fontSize: 12
+                }}>开启后，导出 PDF 时会自动去除连续重复的 PPT 页面（如老师长时间停留在同一页）</Text>
+              </div>}
+            />
+            <Switch checked={config.enable_image_dedup} onChange={(checked) => {
+              updateConfigField('enable_image_dedup', checked)
+            }} />
+          </List.Item>
+          <List.Item>
+            <List.Item.Meta
+              title={<Text
+                style={{
+                  fontWeight: 'normal',
+                }}>去重相似度阈值</Text>}
+              description={<div>
+                <Text type="secondary" style={{
+                  fontWeight: 'normal',
+                  fontSize: 12
+                }}>值越小越严格，推荐 3-8。设为 0 表示仅去除完全相同的图片。</Text>
+              </div>}
+            />
+            <InputNumber min={0} max={20} value={config.dedup_threshold} changeOnWheel
+              disabled={!config.enable_image_dedup}
+              onChange={(value) => {
+                if (value === null || value < 0) {
+                  value = 0
+                }
+                updateConfigField('dedup_threshold', value)
+              }}
+            />
+          </List.Item>
+          <List.Item>
+            <List.Item.Meta
+              title={<Text
+                style={{
+                  fontWeight: 'normal',
                 }}>课件更新时自动下载</Text>}
               description={<div>
                 <Text type="secondary" style={{

@@ -1,6 +1,6 @@
 mod controller;
 mod model;
-mod utils;
+pub mod utils;
 mod zju_assist;
 
 use dashmap::DashMap;
@@ -92,6 +92,8 @@ pub fn run() {
                 tray: true,
                 max_concurrent_tasks: 3,
                 auto_start: false,
+                enable_image_dedup: true,  // 默认启用去重
+                dedup_threshold: 5,        // 汉明距离<=5视为重复
             };
 
             #[cfg(desktop)]
@@ -278,6 +280,7 @@ pub fn run() {
             controller::notify_score,
             controller::get_config,
             controller::set_config,
+            controller::download_subtitles,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

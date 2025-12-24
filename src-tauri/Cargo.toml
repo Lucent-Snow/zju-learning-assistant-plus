@@ -47,6 +47,7 @@ tauri-plugin-notification = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-log = "2.2.1"
 tauri-plugin-os = "2"
+img_hash = "3.2"
 
 [target.'cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))'.dependencies]
 security-framework = "=2.10.0"
